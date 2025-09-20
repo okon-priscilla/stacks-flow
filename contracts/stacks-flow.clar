@@ -173,3 +173,101 @@
         flags: u0
       }
     )
+
+    ;; Update global submission counter
+    (var-set aggregate-submissions item-identifier)
+    
+    ;; Emit blockchain event for external indexing
+    (print { type: "new-item", item-identifier: item-identifier, originator: tx-sender })
+    (ok item-identifier)
+  )
+)
+
+;; Community Validation: Democratic quality assessment mechanism
+(define-public (appraise-item (item-identifier uint) (appraisal int))
+  (let
+    (
+      (previous-appraisal (default-to 0 (get appraisal (map-get? participant-appraisals { participant: tx-sender, item-identifier: item-identifier }))))
+      (target-item (unwrap! (map-get? curated-items { item-identifier: item-identifier }) ERR_NONEXISTENT_ITEM))
+      (appraiser-standing (default-to { metric: 0 } (map-get? participant-credibility { participant: tx-sender })))
+    )
+    ;; Content existence verification
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    
+    ;; Binary voting system enforcement (upvote/downvote only)
+    (asserts! (or (is-eq appraisal 1) (is-eq appraisal -1)) ERR_INVALID_APPRAISAL)
+    
+    ;; Record individual voting decision
+    (map-set participant-appraisals
+      { participant: tx-sender, item-identifier: item-identifier }
+      { appraisal: appraisal }
+    )
+    
+    ;; Update aggregate content score with vote differential
+    (map-set curated-items
+      { item-identifier: item-identifier }
+      (merge target-item { appraisals: (+ (get appraisals target-item) (- appraisal previous-appraisal)) })
+    )
+    
+    ;; Enhance participant reputation through active engagement
+    (map-set participant-credibility
+      { participant: tx-sender }
+      { metric: (+ (get metric appraiser-standing) appraisal) }
+    )
+    
+    ;; Broadcast validation event for transparency
+    (print { type: "appraisal", item-identifier: item-identifier, appraiser: tx-sender, appraisal: appraisal })
+    (ok true)
+  )
+)
+
+;; Direct Creator Monetization: Peer-to-peer value transfer system
+(define-public (reward-originator (item-identifier uint) (gratuity-amount uint))
+  (let
+    (
+      (target-item (unwrap! (map-get? curated-items { item-identifier: item-identifier }) ERR_NONEXISTENT_ITEM))
+    )
+    ;; Content existence validation
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    
+    ;; Financial capacity verification
+    (asserts! (>= (stx-get-balance tx-sender) gratuity-amount) ERR_INADEQUATE_BALANCE)
+    
+    ;; Pre-transfer state update for security (prevent reentrancy)
+    (map-set curated-items
+      { item-identifier: item-identifier }
+      (merge target-item { gratuities: (+ (get gratuities target-item) gratuity-amount) })
+    )
+    
+    ;; Execute direct STX transfer to content creator
+    (try! (stx-transfer? gratuity-amount tx-sender (get originator target-item)))
+    
+    ;; Emit monetization event for ecosystem tracking
+    (print { type: "reward", item-identifier: item-identifier, from: tx-sender, to: (get originator target-item), amount: gratuity-amount })
+    (ok true)
+  )
+)
+
+;; Community Moderation: Decentralized content governance
+(define-public (flag-item (item-identifier uint))
+  (let
+    (
+      (target-item (unwrap! (map-get? curated-items { item-identifier: item-identifier }) ERR_NONEXISTENT_ITEM))
+    )
+    ;; Target content validation
+    (asserts! (item-exists item-identifier) ERR_NONEXISTENT_ITEM)
+    
+    ;; Self-flagging prevention for integrity
+    (asserts! (not (is-eq (get originator target-item) tx-sender)) ERR_INVALID_FLAG)
+    
+    ;; Increment community concern counter
+    (map-set curated-items
+      { item-identifier: item-identifier }
+      (merge target-item { flags: (+ (get flags target-item) u1) })
+    )
+    
+    ;; Record moderation action for transparency
+    (print { type: "flag", item-identifier: item-identifier, flagger: tx-sender })
+    (ok true)
+  )
+)
